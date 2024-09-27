@@ -18,6 +18,31 @@ def recorte(frame):
 def convertir_a_HSV(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
+# Calcular el histograma manualmente y ajustar el contraste
+def ajustar_contraste(frame):
+    #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Cálculo manual del histograma
+    histograma = np.zeros(256, dtype=int)
+    for pixel in frame.flatten():
+        histograma[pixel] += 1
+
+    # Normalizar el histograma
+    num_pixels = frame.size
+    hist_norm = histograma / num_pixels
+
+    # Calcular el histograma acumulativo
+    hist_acumulativo = np.cumsum(hist_norm)
+
+    # Crear una LUT (Look-Up Table) para mapear los valores de intensidad
+    lut = np.uint8(255 * hist_acumulativo)
+
+    # Aplicar la LUT a la imagen para ajustar el contraste
+    frame_contraste = lut[frame]
+
+    return frame_contraste
+
+
 # Crear una máscara para los colores blanco y amarillo
 def crear_mascara_color(hsv_frame):
     lower_white = np.array([0, 0, 200])
@@ -29,31 +54,6 @@ def crear_mascara_color(hsv_frame):
     mask_yellow = cv2.inRange(hsv_frame, lower_yellow, upper_yellow)
 
     return cv2.bitwise_or(mask_white, mask_yellow)
-
-# Calcular el histograma manualmente y ajustar el contraste
-def ajustar_contraste(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Cálculo manual del histograma
-    histograma = np.zeros(256, dtype=int)
-    for pixel in gray.flatten():
-        histograma[pixel] += 1
-
-    # Normalizar el histograma
-    num_pixels = gray.size
-    hist_norm = histograma / num_pixels
-
-    # Calcular el histograma acumulativo
-    hist_acumulativo = np.cumsum(hist_norm)
-
-    # Crear una LUT (Look-Up Table) para mapear los valores de intensidad
-    lut = np.uint8(255 * hist_acumulativo)
-
-    # Aplicar la LUT a la imagen para ajustar el contraste
-    frame_contraste = lut[gray]
-
-    return frame_contraste
-
 
 # Aplicar la corrección gamma manualmente
 def correccion_gamma(frame):
@@ -83,7 +83,7 @@ while cap.isOpened():
     frame_final = correccion_gamma(frame_contraste)
 
     # Mostrar el resultado con las líneas resaltadas
-    resultado = cv2.bitwise_and(frame_recortado, frame_recortado, mask=mask)
+    resultado = cv2.bitwise_or(frame_final, frame_final, maks=mask)
     cv2.imshow('Líneas resaltadas', resultado)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
