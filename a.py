@@ -1,20 +1,9 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Cargar el video
 cap = cv2.VideoCapture('lineas.mp4')
-
-# Verificar que se pueda abrir el video
-if not cap.isOpened():
-    print("Error al abrir el video")
-
-# Obtener el tamaño del video original (ancho, alto)
-frame_width = int(cap.get(3))
-frame_height = int(cap.get(4))
-
-# Definir el codec y crear el objeto VideoWriter para guardar el video procesado
-fourcc = cv2.VideoWriter_fourcc(*'XVID')
-out = cv2.VideoWriter('salida_lineas.avi', fourcc, 30, (frame_width, frame_height))
 
 # Recorte del frame
 def recorte(frame):
@@ -22,9 +11,27 @@ def recorte(frame):
     x2, y2 = 1280, 720
     return frame[y1:y2, x1:x2]
 
-# Conversión de cada fotograma de BGR a HSV
+# Convertir el frame a HSV
 def convertir_a_HSV(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+# Obtener el rango dinámico de un color
+def obtener_rango_color(hsv_frame, lower_static, upper_static):
+    # Filtrar los píxeles que estén dentro del rango estático (inicial)
+    mask = np.all(hsv_frame >= lower_static, axis=2) & np.all(hsv_frame <= upper_static, axis=2)
+    
+    # Extraer los píxeles HSV correspondientes al color detectado
+    color_pixels = hsv_frame[mask > 0]
+    
+    # Si no se detectan píxeles, devolver los valores originales
+    if len(color_pixels) == 0:
+        return lower_static, upper_static
+    
+    # Calcular los valores mínimo y máximo para H, S, y V en los píxeles detectados
+    lower_dynamic = np.min(color_pixels, axis=0)
+    upper_dynamic = np.max(color_pixels, axis=0)
+    
+    return lower_dynamic, upper_dynamic
 
 # Crear una máscara manual para los colores blanco y amarillo usando NumPy
 def crear_mascara_optimizada(hsv_frame, lower_color, upper_color):
@@ -32,51 +39,66 @@ def crear_mascara_optimizada(hsv_frame, lower_color, upper_color):
     mask = np.all(hsv_frame >= lower_color, axis=2) & np.all(hsv_frame <= upper_color, axis=2)
     # Convertir el resultado booleano a una máscara de 8 bits (0 o 255)
     return mask.astype(np.uint8) * 255
+'''
+VERSION BETA
+'''
+# Función para mostrar el histograma en Matplotlib
+def mostrar_histograma(color_pixels, title, color_name):
+    # Separar los canales H, S, V
+    h_vals = color_pixels[:, 0]
+    s_vals = color_pixels[:, 1]
+    v_vals = color_pixels[:, 2]
+    
+    # Crear subplots
+    plt.figure(figsize=(12, 4))
+    plt.suptitle(f'Histograma del {color_name} en HSV')
+    
+    # Histograma del Hue
+    plt.subplot(1, 3, 1)
+    plt.hist(h_vals, bins=180, range=(0, 180), color=color_name, alpha=0.7)
+    plt.title('Hue (H)')
+    
+    # Histograma de la Saturación
+    plt.subplot(1, 3, 2)
+    plt.hist(s_vals, bins=256, range=(0, 255), color=color_name, alpha=0.7)
+    plt.title('Saturación (S)')
+    
+    # Histograma del Valor
+    plt.subplot(1, 3, 3)
+    plt.hist(v_vals, bins=256, range=(0, 255), color=color_name, alpha=0.7)
+    plt.title('Valor (V)')
+    
+    plt.show()
+'''
+VERSION BETA
+'''
 
-# Ajustar contraste con histograma acumulativo (canal V)
+# Ajustar el contraste usando el histograma acumulativo
 def ajustar_contraste_con_histograma(hsv_frame, mask):
-    # Aplicar la máscara a las líneas detectadas en el canal V
     h_channel, s_channel, v_channel = cv2.split(hsv_frame)
     v_channel_lineas = cv2.bitwise_and(v_channel, v_channel, mask=mask)
 
-    # Calcular el histograma solo para las áreas detectadas por la máscara
+    # Calcular el histograma solo en las áreas de las líneas
     histograma = np.zeros(256, dtype=int)
     for pixel in v_channel_lineas.flatten():
         histograma[pixel] += 1
 
-    # Normalizar el histograma
-    num_pixels = v_channel_lineas.size
-    hist_norm = histograma / num_pixels
-
-    # Calcular el histograma acumulativo
+    # Normalizar y calcular el histograma acumulativo
+    hist_norm = histograma / v_channel_lineas.size
     hist_acumulativo = np.cumsum(hist_norm)
-
-    # Crear la Look-Up Table (LUT) para redistribuir el brillo solo en las áreas detectadas
     lut = np.uint8(255 * hist_acumulativo)
 
-    # Aplicar la LUT al canal V para ajustar el contraste
     v_contraste = lut[v_channel]
-
-    # Recombinar los canales H, S, y el nuevo canal V ajustado
-    hsv_contraste = cv2.merge([h_channel, s_channel, v_contraste])
-
-    return hsv_contraste
+    return cv2.merge([h_channel, s_channel, v_contraste])
 
 # Aplicar la corrección gamma al canal V
 def correccion_gamma(hsv_frame, mask, gamma=1.2):
-    # Separar los canales HSV
     h_channel, s_channel, v_channel = cv2.split(hsv_frame)
-
-    # Aplicar la máscara solo en el canal V
     v_channel_lineas = cv2.bitwise_and(v_channel, v_channel, mask=mask)
 
     # Aplicar corrección gamma
     v_gamma = np.array(255 * (v_channel_lineas / 255) ** gamma, dtype="uint8")
-
-    # Recombinar los canales con la corrección gamma aplicada al canal V
-    hsv_gamma = cv2.merge([h_channel, s_channel, v_gamma])
-
-    return hsv_gamma
+    return cv2.merge([h_channel, s_channel, v_gamma])
 
 # Ciclo principal de procesamiento de video
 while cap.isOpened():
@@ -86,45 +108,76 @@ while cap.isOpened():
 
     # Recortar la región de interés
     frame_recortado = recorte(frame)
-
+    '''
+    VERSION BETA
+    '''
+    
+    '''
+    VERSION BETA
+    '''
+    
     # Convertir a HSV
     hsv_frame = convertir_a_HSV(frame_recortado)
+    '''
+    VERSION BETA
+    '''
+    
+    '''
+    VERSION BETA
+    '''
+    # Definir los rangos estáticos iniciales para blanco y amarillo
+    lower_white_static = np.array([0, 0, 200])
+    upper_white_static = np.array([180, 50, 255])
 
-    # Definir los rangos de color para blanco y amarillo
-    lower_white = np.array([0, 0, 200])
-    upper_white = np.array([180, 50, 255])
+    lower_yellow_static = np.array([18, 94, 140])
+    upper_yellow_static = np.array([48, 255, 255])
 
-    lower_yellow = np.array([18, 94, 140])
-    upper_yellow = np.array([48, 255, 255])
+    # Obtener rangos dinámicos para el blanco y el amarillo en cada frame
+    lower_white_dynamic, upper_white_dynamic = obtener_rango_color(hsv_frame, lower_white_static, upper_white_static)
+    lower_yellow_dynamic, upper_yellow_dynamic = obtener_rango_color(hsv_frame, lower_yellow_static, upper_yellow_static)
 
-    # Crear las máscaras manualmente para el color blanco y amarillo usando NumPy
-    mask_white_optimizada = crear_mascara_optimizada(hsv_frame, lower_white, upper_white)
-    mask_yellow_optimizada = crear_mascara_optimizada(hsv_frame, lower_yellow, upper_yellow)
+    # Filtrar píxeles para blanco y amarillo usando los rangos dinámicos
+    mask_white_dynamic = crear_mascara_optimizada(hsv_frame, lower_white_dynamic, upper_white_dynamic)
+    mask_yellow_dynamic = crear_mascara_optimizada(hsv_frame, lower_yellow_dynamic, upper_yellow_dynamic)
+   
+    '''
+    Version BETA
+    '''
+    # Obtener los píxeles correspondientes a blanco y amarillo
+    white_pixels = hsv_frame[mask_white_dynamic > 0]
+    yellow_pixels = hsv_frame[mask_yellow_dynamic > 0]
 
-    # Combinar las máscaras de blanco y amarillo
-    mask_optimizada = cv2.bitwise_or(mask_white_optimizada, mask_yellow_optimizada)
+    # Mostrar histograma de los píxeles blancos
+    if len(white_pixels) > 0:
+        mostrar_histograma(white_pixels, "Histograma de los píxeles blancos", 'gray')
 
-    # Aplicar el ajuste de contraste usando el histograma acumulativo en el canal V
-    hsv_contraste = ajustar_contraste_con_histograma(hsv_frame, mask_optimizada)
+    # Mostrar histograma de los píxeles amarillos
+    if len(yellow_pixels) > 0:
+        mostrar_histograma(yellow_pixels, "Histograma de los píxeles amarillos", 'yellow')
+    '''
+    Version BETA
+    '''
+   
+    # Combinar las máscaras
+    mask_dynamic = cv2.bitwise_or(mask_white_dynamic, mask_yellow_dynamic)
+    
+    # Ajustar el contraste usando el histograma acumulativo
+    hsv_contraste = ajustar_contraste_con_histograma(hsv_frame, mask_dynamic)
 
-    # Aplicar la corrección gamma solo a las líneas detectadas
-    hsv_final = correccion_gamma(hsv_contraste, mask_optimizada)
+    # Aplicar corrección gamma
+    hsv_final = correccion_gamma(hsv_contraste, mask_dynamic)
 
-    # Convertir de nuevo a BGR para guardar el resultado
+    # Convertir de nuevo a BGR
     frame_final = cv2.cvtColor(hsv_final, cv2.COLOR_HSV2BGR)
 
-    # Aplicar la máscara para mantener el fondo negro y resaltar solo las líneas
-    resultado = cv2.bitwise_and(frame_final, frame_final, mask=mask_optimizada)
+    # Aplicar la máscara y mostrar el resultado
+    resultado = cv2.bitwise_and(frame_final, frame_final, mask=mask_dynamic)
     cv2.imshow('Líneas resaltadas', resultado)
 
-    # Escribir el frame procesado en el archivo de video de salida
-    frame_salida = cv2.resize(resultado, (frame_width, frame_height))
-    out.write(frame_salida)
-
+    # Salir si se presiona la tecla 'q'
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 # Liberar los recursos
 cap.release()
-out.release()
 cv2.destroyAllWindows()
