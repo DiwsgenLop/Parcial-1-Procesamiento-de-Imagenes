@@ -13,8 +13,7 @@ frame_width = int(cap.get(3))
 frame_height = int(cap.get(4))
 
 # Definir el codec y crear el objeto VideoWriter para guardar el video procesado
-# Prueba con un codec más compatible como 'XVID'
-fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec para el formato AVI
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
 out = cv2.VideoWriter('salida_lineas.avi', fourcc, 30, (frame_width, frame_height))
 
 # Recorte del frame
@@ -27,39 +26,57 @@ def recorte(frame):
 def convertir_a_HSV(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-# Crear una máscara para los colores blanco y amarillo
-def crear_mascara_color(hsv_frame):
-    lower_white = np.array([0, 0, 200])
-    upper_white = np.array([180, 50, 255])
-    mask_white = cv2.inRange(hsv_frame, lower_white, upper_white)
+# Crear una máscara manual para los colores blanco y amarillo usando NumPy
+def crear_mascara_optimizada(hsv_frame, lower_color, upper_color):
+    # Crear máscaras utilizando operaciones vectorizadas de NumPy
+    mask = np.all(hsv_frame >= lower_color, axis=2) & np.all(hsv_frame <= upper_color, axis=2)
+    # Convertir el resultado booleano a una máscara de 8 bits (0 o 255)
+    return mask.astype(np.uint8) * 255
 
-    lower_yellow = np.array([18, 94, 140])
-    upper_yellow = np.array([48, 255, 255])
-    mask_yellow = cv2.inRange(hsv_frame, lower_yellow, upper_yellow)
+# Ajustar contraste con histograma acumulativo (canal V)
+def ajustar_contraste_con_histograma(hsv_frame, mask):
+    # Aplicar la máscara a las líneas detectadas en el canal V
+    h_channel, s_channel, v_channel = cv2.split(hsv_frame)
+    v_channel_lineas = cv2.bitwise_and(v_channel, v_channel, mask=mask)
 
-    return cv2.bitwise_or(mask_white, mask_yellow)
-
-# Ajustar contraste basado en el histograma acumulativo del canal de brillo (V)
-def ajustar_contraste_v(v_channel):
+    # Calcular el histograma solo para las áreas detectadas por la máscara
     histograma = np.zeros(256, dtype=int)
-    for pixel in v_channel.flatten():
+    for pixel in v_channel_lineas.flatten():
         histograma[pixel] += 1
 
-    num_pixels = v_channel.size
+    # Normalizar el histograma
+    num_pixels = v_channel_lineas.size
     hist_norm = histograma / num_pixels
 
+    # Calcular el histograma acumulativo
     hist_acumulativo = np.cumsum(hist_norm)
 
+    # Crear la Look-Up Table (LUT) para redistribuir el brillo solo en las áreas detectadas
     lut = np.uint8(255 * hist_acumulativo)
+
+    # Aplicar la LUT al canal V para ajustar el contraste
     v_contraste = lut[v_channel]
 
-    return v_contraste
+    # Recombinar los canales H, S, y el nuevo canal V ajustado
+    hsv_contraste = cv2.merge([h_channel, s_channel, v_contraste])
 
-# Aplicar la corrección gamma manualmente en el canal de brillo (V)
-def correccion_gamma_v(v_channel):
-    gamma = 5
-    v_gamma = np.array(255 * (v_channel / 255) ** gamma, dtype="uint8")
-    return v_gamma
+    return hsv_contraste
+
+# Aplicar la corrección gamma al canal V
+def correccion_gamma(hsv_frame, mask, gamma=1.2):
+    # Separar los canales HSV
+    h_channel, s_channel, v_channel = cv2.split(hsv_frame)
+
+    # Aplicar la máscara solo en el canal V
+    v_channel_lineas = cv2.bitwise_and(v_channel, v_channel, mask=mask)
+
+    # Aplicar corrección gamma
+    v_gamma = np.array(255 * (v_channel_lineas / 255) ** gamma, dtype="uint8")
+
+    # Recombinar los canales con la corrección gamma aplicada al canal V
+    hsv_gamma = cv2.merge([h_channel, s_channel, v_gamma])
+
+    return hsv_gamma
 
 # Ciclo principal de procesamiento de video
 while cap.isOpened():
@@ -73,30 +90,34 @@ while cap.isOpened():
     # Convertir a HSV
     hsv_frame = convertir_a_HSV(frame_recortado)
 
-    # Separar los canales HSV
-    h_channel, s_channel, v_channel = cv2.split(hsv_frame)
+    # Definir los rangos de color para blanco y amarillo
+    lower_white = np.array([0, 0, 200])
+    upper_white = np.array([180, 50, 255])
 
-    # Aplicar el ajuste de contraste al canal de brillo (V)
-    v_contraste = ajustar_contraste_v(v_channel)
+    lower_yellow = np.array([18, 94, 140])
+    upper_yellow = np.array([48, 255, 255])
 
-    # Aplicar corrección gamma al canal de brillo (V)
-    v_final = correccion_gamma_v(v_contraste)
-    
-    # Recombinar los canales H, S, y el nuevo canal V ajustado
-    hsv_final = cv2.merge([h_channel, s_channel, v_final])
+    # Crear las máscaras manualmente para el color blanco y amarillo usando NumPy
+    mask_white_optimizada = crear_mascara_optimizada(hsv_frame, lower_white, upper_white)
+    mask_yellow_optimizada = crear_mascara_optimizada(hsv_frame, lower_yellow, upper_yellow)
 
-    # Convertir de nuevo a BGR
+    # Combinar las máscaras de blanco y amarillo
+    mask_optimizada = cv2.bitwise_or(mask_white_optimizada, mask_yellow_optimizada)
+
+    # Aplicar el ajuste de contraste usando el histograma acumulativo en el canal V
+    hsv_contraste = ajustar_contraste_con_histograma(hsv_frame, mask_optimizada)
+
+    # Aplicar la corrección gamma solo a las líneas detectadas
+    hsv_final = correccion_gamma(hsv_contraste, mask_optimizada)
+
+    # Convertir de nuevo a BGR para guardar el resultado
     frame_final = cv2.cvtColor(hsv_final, cv2.COLOR_HSV2BGR)
-    
-    # Crear la máscara de las líneas blancas y amarillas
-    mask = crear_mascara_color(hsv_frame)
 
-    # Mostrar el resultado con las líneas resaltadas
-    resultado = cv2.bitwise_and(frame_final, frame_final, mask=mask)
+    # Aplicar la máscara para mantener el fondo negro y resaltar solo las líneas
+    resultado = cv2.bitwise_and(frame_final, frame_final, mask=mask_optimizada)
     cv2.imshow('Líneas resaltadas', resultado)
 
     # Escribir el frame procesado en el archivo de video de salida
-    # Asegurarse de que el tamaño del frame sea igual al de salida (frame_width, frame_height)
     frame_salida = cv2.resize(resultado, (frame_width, frame_height))
     out.write(frame_salida)
 
@@ -105,5 +126,5 @@ while cap.isOpened():
 
 # Liberar los recursos
 cap.release()
-out.release()  # Cerrar el archivo de salida de video
+out.release()
 cv2.destroyAllWindows()
