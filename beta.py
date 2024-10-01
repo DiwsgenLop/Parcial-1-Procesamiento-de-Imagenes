@@ -62,36 +62,13 @@ def ajuste_contraste(hsv_frame, mask):
     h_channel, s_channel, v_channel = cv2.split(hsv_frame)
     v_channel_lineas = cv2.bitwise_and(v_channel, v_channel, mask=mask)
     
-    plt.title("Frame con mascara")
-    plt.imshow(v_channel_lineas)
-    plt.show()
-    
     # Calcular el histograma solo en las áreas de las líneas
     histograma = np.zeros(256, dtype=int)
     for pixel in v_channel_lineas.flatten():
         histograma[pixel] += 1
-    '''
-    Version beta
-    '''
-    #Vemos el histograma de los pixeles de la mascara antes de normalizarlo
-    plt.title("Histograma de los pixeles de la mascara")
-    plt.plot(histograma)
-    plt.show()
-    '''
-    Version beta
-    '''
+   
     # Normalizamos el histograma
     hist_norm = histograma / v_channel_lineas.size
-    
-    '''
-    Version beta
-    '''
-    plt.title("Histograma normalizado")
-    plt.plot(hist_norm)
-    plt.show()
-    '''
-    Version beta
-    '''
     # Calculamos el histograma acumulativo
     hist_acumulativo = np.cumsum(hist_norm)
     '''
