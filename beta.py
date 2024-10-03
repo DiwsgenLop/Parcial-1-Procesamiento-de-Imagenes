@@ -12,9 +12,11 @@ if not cap.isOpened():
 frame_width = int(cap.get(3))
 frame_height = int(cap.get(4))
 
+# Obtener los FPS del video original
+fps = cap.get(cv2.CAP_PROP_FPS)
 #Definimos el codec y creamos el objeto VideoWriter para guardar el video
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-out = cv2.VideoWriter('salida_procesada.mp4', fourcc, 30, (frame_width, frame_height))
+out = cv2.VideoWriter('salida_procesada.mp4', fourcc, fps, (frame_width, frame_height))
 
 # recortar del frame
 def recortar(frame):
